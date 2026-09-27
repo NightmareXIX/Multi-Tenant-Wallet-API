@@ -168,7 +168,7 @@ A reviewer should be able to clone the repo and run everything with one command.
 - It summarises the assumptions, with a link to the FR doc.
 - It lists the trade-offs:
   - The balance is a cached value; the ledger is the source of truth.
-  - Immutability is enforced in the app, not by database triggers.
+  - Immutability is enforced by the model and a Postgres trigger that rejects `UPDATE` and `DELETE` on the ledger.
   - API keys are hashed with SHA-256.
   - Idempotency keys never expire.
   - There is one currency (BDT).
