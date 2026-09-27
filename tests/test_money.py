@@ -5,6 +5,7 @@ from rest_framework.test import APITestCase
 
 from tenants.authentication import generate_api_key, hash_api_key
 from tenants.models import Tenant
+from tests.ledger import LedgerAssertions
 from wallets.models import Transaction
 from wallets import services
 from wallets.services import BIGINT_MAX, create_user
@@ -15,14 +16,21 @@ def create_tenant(name):
     return Tenant.objects.create(name=name, api_key_hash=hash_api_key(key)), key
 
 
-class MoneyTestCase(APITestCase):
-    """Acme (the caller) owns self.wallet; Globex is another tenant with its own key."""
+class MoneyTestCase(LedgerAssertions, APITestCase):
+    """Acme (the caller) owns self.wallet; Globex is another tenant with its own key.
+
+    Every test ends with the ledger check, whether its requests succeeded, failed or were replayed.
+    """
 
     def setUp(self):
         self.acme, self.acme_key = create_tenant('Acme')
         self.globex, self.globex_key = create_tenant('Globex')
         self.wallet = create_user(self.acme, 'Alice').wallet
         self.client.credentials(HTTP_X_API_KEY=self.acme_key)
+
+    def tearDown(self):
+        self.assertLedgerMatches()
+        super().tearDown()
 
     def post(self, url, body, key=None):
         headers = {} if key is None else {'Idempotency-Key': key}
