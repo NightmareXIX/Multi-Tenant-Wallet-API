@@ -1,0 +1,7 @@
+docs/Assessment.pdf
+
+# Claude Code (local only, never committed)
+.claude/
+CLAUDE.md
+CLAUDE.local.md
+.mcp.json
