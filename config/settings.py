@@ -129,6 +129,8 @@ REST_FRAMEWORK = {
     # The API key is the only way a request names its tenant.
     'DEFAULT_AUTHENTICATION_CLASSES': ['tenants.authentication.ApiKeyAuthentication'],
     'DEFAULT_PERMISSION_CLASSES': ['tenants.permissions.HasTenant'],
+    # Every error leaves the API as {"error": {"code", "message", "fields"?}}.
+    'EXCEPTION_HANDLER': 'wallets.exceptions.exception_handler',
 }
 
 SPECTACULAR_SETTINGS = {

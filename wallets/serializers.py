@@ -33,6 +33,22 @@ class StrictAmountField(serializers.Field):
         return value
 
 
+class ErrorDetailSerializer(serializers.Serializer):
+    code = serializers.CharField(help_text='Stable machine-readable code, e.g. insufficient_funds.')
+    message = serializers.CharField(help_text='Human-readable explanation.')
+    fields = serializers.DictField(
+        child=serializers.ListField(child=serializers.CharField()),
+        required=False,
+        help_text='Only on validation_error: each invalid field and its problems.',
+    )
+
+
+class ErrorSerializer(serializers.Serializer):
+    """The body of every error response. Only used to document the schema."""
+
+    error = ErrorDetailSerializer()
+
+
 class AmountSerializer(serializers.Serializer):
     amount = StrictAmountField(help_text='Paisa, greater than 0.')
 

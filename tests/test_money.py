@@ -75,7 +75,7 @@ class DepositTests(MoneyTestCase):
             with self.subTest(amount=amount):
                 response = self.deposit(self.wallet.id, amount)
                 self.assertEqual(response.status_code, 400)
-                self.assertIn('amount', response.data)
+                self.assertIn('amount', response.data['error']['fields'])
         response = self.post(f'/api/v1/wallets/{self.wallet.id}/deposit', {}, 'key-1')
         self.assertEqual(response.status_code, 400)
         self.assertEqual(self.balance(self.wallet), 0)
@@ -132,7 +132,7 @@ class WithdrawTests(MoneyTestCase):
         response = self.withdraw(self.wallet.id, 1001)
 
         self.assertEqual(response.status_code, 422)
-        self.assertEqual(response.data['detail'].code, 'insufficient_funds')
+        self.assertEqual(response.data['error']['code'], 'insufficient_funds')
         self.assertEqual(self.balance(self.wallet), 1000)
         self.assertEqual(Transaction.objects.count(), 1)
 
@@ -185,7 +185,7 @@ class TransferTests(MoneyTestCase):
         response = self.transfer(self.wallet.id, self.bob.id, 1001)
 
         self.assertEqual(response.status_code, 422)
-        self.assertEqual(response.data['detail'].code, 'insufficient_funds')
+        self.assertEqual(response.data['error']['code'], 'insufficient_funds')
         self.assertEqual(self.balance(self.wallet), 1000)
         self.assertEqual(self.balance(self.bob), 0)
         self.assertFalse(Transaction.objects.filter(type='TRANSFER').exists())
@@ -197,7 +197,7 @@ class TransferTests(MoneyTestCase):
             response = self.transfer(self.wallet.id, self.wallet.id, 100, key=key)
 
         self.assertEqual(response.status_code, 400)
-        self.assertEqual(response.data['detail'].code, 'same_wallet_transfer')
+        self.assertEqual(response.data['error']['code'], 'same_wallet_transfer')
         self.assertEqual(self.balance(self.wallet), 1000)
 
     def test_invalid_body_returns_400(self):
@@ -213,7 +213,7 @@ class TransferTests(MoneyTestCase):
             with self.subTest(field=field, value=value):
                 response = self.post('/api/v1/transfers', {**valid, field: value}, str(uuid.uuid4()))
                 self.assertEqual(response.status_code, 400)
-                self.assertIn(field, response.data)
+                self.assertIn(field, response.data['error']['fields'])
         self.assertEqual(self.balance(self.wallet), 1000)
 
     def test_destination_in_another_tenant_returns_404(self):
@@ -273,7 +273,7 @@ class IdempotencyKeyHeaderTests(MoneyTestCase):
             with self.subTest(key=key):
                 response = self.post(url, {'amount': 100}, key)
                 self.assertEqual(response.status_code, 400)
-                self.assertEqual(response.data['detail'].code, 'idempotency_key_missing')
+                self.assertEqual(response.data['error']['code'], 'idempotency_key_missing')
         self.assertFalse(Transaction.objects.exists())
 
     def test_key_of_255_characters_is_accepted(self):
@@ -298,7 +298,7 @@ class IdempotencyTests(MoneyTestCase):
         response = self.deposit(self.wallet.id, 600, key='key-1')
 
         self.assertEqual(response.status_code, 422)
-        self.assertEqual(response.data['detail'].code, 'idempotency_key_mismatch')
+        self.assertEqual(response.data['error']['code'], 'idempotency_key_mismatch')
         self.assertEqual(Transaction.objects.count(), 1)
         self.assertEqual(self.balance(self.wallet), 500)
 

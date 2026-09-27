@@ -8,3 +8,7 @@ urlpatterns = [
     path('api/v1/', include('tenants.urls')),
     path('api/v1/', include('wallets.urls')),
 ]
+
+# JSON bodies for errors raised outside DRF views, e.g. a malformed wallet id.
+handler404 = 'wallets.exceptions.not_found'
+handler500 = 'wallets.exceptions.server_error'
