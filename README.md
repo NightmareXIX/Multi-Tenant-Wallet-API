@@ -145,8 +145,10 @@ The brief leaves these points open, so these are the choices made. The full list
 - **The balance is cached on the wallet; the ledger is the source of truth.** The balance is updated in the same
   database transaction as each ledger entry, so reads are fast and the balance can always be rebuilt from the
   ledger. The tests check that the two match after every money operation.
-- **Immutability is enforced in the app, not by database triggers.** The `Transaction` model rejects updates and
-  deletes, and no route exposes them, but a bulk queryset update or raw SQL could still change a row.
+- **Immutability is enforced by the model and a Postgres trigger.** The `Transaction` model rejects updates and
+  deletes, and a trigger rejects `UPDATE` and `DELETE` on the ledger table, so bulk queryset calls and raw SQL fail
+  too. This ties the schema to Postgres, which row locking already needs. A database superuser can still drop the
+  trigger or `TRUNCATE` the table.
 - **API keys are hashed with SHA-256**, not bcrypt. The keys are long and random, so a slow hash adds cost to every
   request without adding real protection.
 - **Idempotency keys never expire.** They live on the ledger transaction itself, which keeps the design simple but

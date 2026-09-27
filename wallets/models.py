@@ -34,7 +34,11 @@ class Wallet(models.Model):
 
 
 class Transaction(models.Model):
-    """One immutable ledger entry. Every balance change creates exactly one."""
+    """One immutable ledger entry. Every balance change creates exactly one.
+
+    save() and delete() reject changes here; a Postgres trigger (migration 0002) also rejects
+    UPDATE and DELETE on the table, so bulk queryset calls and raw SQL fail too.
+    """
 
     class Type(models.TextChoices):
         DEPOSIT = 'DEPOSIT'
