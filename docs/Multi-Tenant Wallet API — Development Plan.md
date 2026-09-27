@@ -165,3 +165,4 @@ A reviewer should be able to clone the repo and run everything with one command.
 ## Working tips
 
 - Keep views thin and money logic in `services.py`, so there is only one place to review for locking and idempotency.
+- Commit with the `git-commit` skill (`.claude/skills/git-commit/SKILL.md`, kept local and gitignored). Commit whenever a self-contained change is done, such as a model with its migration, an endpoint with its tests or a fix with its regression test, not only when a phase ends. Messages follow `<type>(<scope>): <short description>` with types `feat`, `fix`, `refactor`, `test`, `docs`, `chore` and `build`, for example `feat(money): lock wallets in sorted id order for transfers`. One commit holds one logical change: no vague messages like "update" or "final", and no pile of micro-commits.
