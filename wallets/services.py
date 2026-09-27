@@ -1,8 +1,8 @@
-from django.db import transaction
+from django.db import IntegrityError, transaction
 from django.shortcuts import get_object_or_404
 from rest_framework.exceptions import ValidationError
 
-from .exceptions import InsufficientFunds
+from .exceptions import IdempotencyKeyMismatch, InsufficientFunds
 from .models import Transaction, User, Wallet
 
 # Largest value a BigIntegerField (Postgres bigint) can hold.
@@ -37,6 +37,43 @@ def withdraw(tenant, wallet_id, amount, idempotency_key):
 
 
 def _execute(tenant, idempotency_key, type, amount, source_id, destination_id):
+    """Run a money operation at most once per idempotency key.
+
+    Only successful operations store a key (on their ledger row), so a key whose
+    request failed can be reused. The unique (tenant, idempotency_key) constraint
+    is the real guarantee; the first lookup is only a fast path.
+    """
+    request = (type, amount, source_id, destination_id)
+    existing = _find_existing(tenant, idempotency_key, request)
+    if existing:
+        return existing
+    try:
+        return _move_money(tenant, idempotency_key, *request)
+    except IntegrityError:
+        # A concurrent request with the same key committed first. Caught outside
+        # the atomic block, so this request's balance changes are already rolled back.
+        existing = _find_existing(tenant, idempotency_key, request)
+        if existing is None:
+            raise
+        return existing
+
+
+def _find_existing(tenant, idempotency_key, request):
+    """Return the transaction stored under this key, or None if the key is new.
+
+    A key reused for a different operation, wallet(s) or amount is rejected
+    instead of replayed, so a client bug cannot hide behind a misleading success.
+    """
+    existing = Transaction.objects.filter(tenant=tenant, idempotency_key=idempotency_key).first()
+    if existing is None:
+        return None
+    stored = (existing.type, existing.amount, existing.source_wallet_id, existing.destination_wallet_id)
+    if stored != request:
+        raise IdempotencyKeyMismatch()
+    return existing
+
+
+def _move_money(tenant, idempotency_key, type, amount, source_id, destination_id):
     """Move money and write its ledger row in one DB transaction.
 
     Balances are read and changed only on the instances select_for_update

@@ -21,3 +21,9 @@ class InsufficientFunds(APIException):
     status_code = status.HTTP_422_UNPROCESSABLE_ENTITY
     default_code = 'insufficient_funds'
     default_detail = 'Wallet balance is lower than the requested amount.'
+
+
+class IdempotencyKeyMismatch(APIException):
+    status_code = status.HTTP_422_UNPROCESSABLE_ENTITY
+    default_code = 'idempotency_key_mismatch'
+    default_detail = 'This Idempotency-Key was already used for a different request.'

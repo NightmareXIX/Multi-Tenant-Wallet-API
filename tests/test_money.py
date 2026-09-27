@@ -1,10 +1,12 @@
 import uuid
+from unittest import mock
 
 from rest_framework.test import APITestCase
 
 from tenants.authentication import generate_api_key, hash_api_key
 from tenants.models import Tenant
 from wallets.models import Transaction
+from wallets import services
 from wallets.services import BIGINT_MAX, create_user
 
 
@@ -156,3 +158,92 @@ class IdempotencyKeyHeaderTests(MoneyTestCase):
         response = self.deposit(self.wallet.id, 100, key='k' * 255)
         self.assertEqual(response.status_code, 201)
         self.assertEqual(response.data['idempotency_key'], 'k' * 255)
+
+
+class IdempotencyTests(MoneyTestCase):
+    def test_same_key_and_request_replays_without_a_new_transaction(self):
+        first = self.deposit(self.wallet.id, 500, key='key-1')
+        second = self.deposit(self.wallet.id, 500, key='key-1')
+
+        self.assertEqual(second.status_code, 201)
+        self.assertEqual(second.data, first.data)
+        self.assertEqual(Transaction.objects.count(), 1)
+        self.assertEqual(self.balance(self.wallet), 500)
+
+    def test_same_key_with_different_amount_returns_422(self):
+        self.deposit(self.wallet.id, 500, key='key-1')
+
+        response = self.deposit(self.wallet.id, 600, key='key-1')
+
+        self.assertEqual(response.status_code, 422)
+        self.assertEqual(response.data['detail'].code, 'idempotency_key_mismatch')
+        self.assertEqual(Transaction.objects.count(), 1)
+        self.assertEqual(self.balance(self.wallet), 500)
+
+    def test_same_key_on_another_wallet_returns_422(self):
+        bob = create_user(self.acme, 'Bob').wallet
+        self.deposit(self.wallet.id, 500, key='key-1')
+
+        self.assertEqual(self.deposit(bob.id, 500, key='key-1').status_code, 422)
+        self.assertEqual(self.balance(bob), 0)
+
+    def test_same_key_on_another_operation_returns_422(self):
+        self.deposit(self.wallet.id, 500, key='key-1')
+
+        self.assertEqual(self.withdraw(self.wallet.id, 500, key='key-1').status_code, 422)
+        self.assertEqual(self.balance(self.wallet), 500)
+
+    def test_key_of_a_failed_request_can_be_reused(self):
+        self.assertEqual(self.withdraw(self.wallet.id, 500, key='key-1').status_code, 422)
+        self.deposit(self.wallet.id, 500)
+
+        response = self.withdraw(self.wallet.id, 500, key='key-1')
+
+        self.assertEqual(response.status_code, 201)
+        self.assertEqual(self.balance(self.wallet), 0)
+
+    def test_two_tenants_can_use_the_same_key(self):
+        globex_wallet = create_user(self.globex, 'Gina').wallet
+        self.assertEqual(self.deposit(self.wallet.id, 500, key='key-1').status_code, 201)
+
+        self.client.credentials(HTTP_X_API_KEY=self.globex_key)
+        self.assertEqual(self.deposit(globex_wallet.id, 700, key='key-1').status_code, 201)
+
+        self.assertEqual(self.balance(self.wallet), 500)
+        self.assertEqual(self.balance(globex_wallet), 700)
+        self.assertEqual(Transaction.objects.filter(idempotency_key='key-1').count(), 2)
+
+    def key_hidden_from_first_check(self):
+        """Simulate a concurrent twin that commits the key right after this request's first lookup.
+
+        Only the unique constraint can then stop a second execution.
+        """
+        find_existing = services._find_existing
+        calls = []
+
+        def first_lookup_misses(*args):
+            calls.append(args)
+            return None if len(calls) == 1 else find_existing(*args)
+
+        return mock.patch.object(services, '_find_existing', side_effect=first_lookup_misses)
+
+    def test_key_that_slips_past_the_first_check_is_caught_by_the_constraint(self):
+        original = self.deposit(self.wallet.id, 500, key='key-1')
+
+        with self.key_hidden_from_first_check():
+            response = self.deposit(self.wallet.id, 500, key='key-1')
+
+        self.assertEqual(response.status_code, 201)
+        self.assertEqual(response.data, original.data)
+        self.assertEqual(Transaction.objects.count(), 1)
+        self.assertEqual(self.balance(self.wallet), 500)
+
+    def test_mismatched_key_that_slips_past_the_first_check_returns_422(self):
+        self.deposit(self.wallet.id, 500, key='key-1')
+
+        with self.key_hidden_from_first_check():
+            response = self.deposit(self.wallet.id, 900, key='key-1')
+
+        self.assertEqual(response.status_code, 422)
+        self.assertEqual(Transaction.objects.count(), 1)
+        self.assertEqual(self.balance(self.wallet), 500)
