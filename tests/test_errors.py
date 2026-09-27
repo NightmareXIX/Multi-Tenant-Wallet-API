@@ -1,5 +1,8 @@
+import json
 import uuid
 
+from django.test import RequestFactory, SimpleTestCase
+from django.urls import get_resolver
 from rest_framework.test import APITestCase
 
 from tenants.authentication import generate_api_key, hash_api_key
@@ -103,3 +106,23 @@ class ErrorShapeTests(APITestCase):
             headers={'Idempotency-Key': 'key-1'},
         )
         self.assertError(response, 400, 'parse_error')
+
+
+class DjangoErrorViewTests(SimpleTestCase):
+    """Errors raised before any DRF view runs still use the error shape."""
+
+    def assertJsonError(self, response, status, code):
+        self.assertEqual(response.status_code, status)
+        self.assertEqual(response['Content-Type'], 'application/json')
+        self.assertEqual(json.loads(response.content)['error']['code'], code)
+
+    def test_malformed_wallet_id_returns_json_404(self):
+        # The <uuid:> converter rejects it in URL routing, before auth.
+        self.assertJsonError(self.client.get('/api/v1/wallets/not-a-uuid'), 404, 'not_found')
+
+    def test_unknown_path_returns_json_404(self):
+        self.assertJsonError(self.client.get('/api/v1/nope'), 404, 'not_found')
+
+    def test_server_error_returns_json_500(self):
+        handler = get_resolver().resolve_error_handler(500)
+        self.assertJsonError(handler(RequestFactory().get('/')), 500, 'server_error')

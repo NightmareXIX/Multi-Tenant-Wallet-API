@@ -1,4 +1,4 @@
-from django.http import Http404
+from django.http import Http404, JsonResponse
 from rest_framework import status
 from rest_framework.exceptions import (
     APIException,
@@ -68,3 +68,15 @@ def exception_handler(exc, context):
     else:
         response.data = error_body(exc.get_codes(), str(exc.detail))
     return response
+
+
+# Django's own error views, for requests that never reach a DRF view: an unknown path, or a
+# malformed id rejected by the <uuid:> converter. Django only uses them when DEBUG is off.
+
+
+def not_found(request, exception):
+    return JsonResponse(error_body('not_found', 'Not found.'), status=404)
+
+
+def server_error(request):
+    return JsonResponse(error_body('server_error', 'Something went wrong on our side.'), status=500)
