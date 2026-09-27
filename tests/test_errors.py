@@ -3,6 +3,7 @@ import uuid
 
 from django.test import RequestFactory, SimpleTestCase
 from django.urls import get_resolver
+from drf_spectacular.generators import SchemaGenerator
 from rest_framework.test import APITestCase
 
 from tenants.authentication import generate_api_key, hash_api_key
@@ -126,3 +127,34 @@ class DjangoErrorViewTests(SimpleTestCase):
     def test_server_error_returns_json_500(self):
         handler = get_resolver().resolve_error_handler(500)
         self.assertJsonError(handler(RequestFactory().get('/')), 500, 'server_error')
+
+
+class ErrorSchemaTests(SimpleTestCase):
+    """/api/docs shows the error shape under each status a route can return."""
+
+    @classmethod
+    def setUpClass(cls):
+        super().setUpClass()
+        cls.schema = SchemaGenerator().get_schema(request=None, public=True)
+
+    def response_refs(self, path, method):
+        responses = self.schema['paths'][path][method]['responses']
+        return {status: r['content']['application/json']['schema']['$ref'] for status, r in responses.items()}
+
+    def test_error_component_has_the_error_shape(self):
+        schemas = self.schema['components']['schemas']
+        self.assertEqual(schemas['Error']['properties'], {'error': {'$ref': '#/components/schemas/ErrorDetail'}})
+        self.assertEqual(set(schemas['ErrorDetail']['properties']), {'code', 'message', 'fields'})
+        self.assertEqual(schemas['ErrorDetail']['required'], ['code', 'message'])
+
+    def test_money_route_documents_each_error_status(self):
+        error = '#/components/schemas/Error'
+        self.assertEqual(
+            self.response_refs('/api/v1/wallets/{wallet_id}/withdraw', 'post'),
+            {'201': '#/components/schemas/Transaction', '400': error, '401': error, '404': error, '422': error},
+        )
+
+    def test_history_success_is_still_paginated(self):
+        refs = self.response_refs('/api/v1/wallets/{wallet_id}/transactions', 'get')
+        self.assertEqual(refs['200'], '#/components/schemas/PaginatedTransactionList')
+        self.assertEqual(refs['404'], '#/components/schemas/Error')

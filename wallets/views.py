@@ -1,5 +1,5 @@
 from django.db.models import Q
-from drf_spectacular.utils import OpenApiParameter, extend_schema
+from drf_spectacular.utils import OpenApiParameter, OpenApiResponse, extend_schema
 from rest_framework import generics, status
 from rest_framework.pagination import PageNumberPagination
 from rest_framework.response import Response
@@ -10,6 +10,7 @@ from .exceptions import IdempotencyKeyMissing
 from .models import Transaction
 from .serializers import (
     AmountSerializer,
+    ErrorSerializer,
     TransactionSerializer,
     TransferSerializer,
     UserSerializer,
@@ -27,6 +28,15 @@ IDEMPOTENCY_KEY = OpenApiParameter(
 )
 
 
+def error(codes):
+    """Document an error status: the error body, carrying one of these codes."""
+    return OpenApiResponse(ErrorSerializer, description=codes)
+
+
+UNAUTHORIZED = error('invalid_api_key')
+NOT_FOUND = error('not_found: the wallet does not exist or belongs to another tenant')
+
+
 def get_idempotency_key(request):
     key = request.headers.get('Idempotency-Key', '')
     if not key.strip() or len(key) > 255:
@@ -34,7 +44,11 @@ def get_idempotency_key(request):
     return key
 
 
-@extend_schema(summary='Create a user and their wallet', tags=['Users'])
+@extend_schema(
+    summary='Create a user and their wallet',
+    tags=['Users'],
+    responses={201: UserSerializer, 400: error('validation_error'), 401: UNAUTHORIZED},
+)
 class UserCreateView(generics.CreateAPIView):
     """Create a user in the calling tenant, together with their one wallet (balance 0).
 
@@ -44,7 +58,11 @@ class UserCreateView(generics.CreateAPIView):
     serializer_class = UserSerializer
 
 
-@extend_schema(summary='Get a wallet and its balance', tags=['Wallets'])
+@extend_schema(
+    summary='Get a wallet and its balance',
+    tags=['Wallets'],
+    responses={200: WalletSerializer, 401: UNAUTHORIZED, 404: NOT_FOUND},
+)
 class WalletDetailView(generics.RetrieveAPIView):
     """Return a wallet of the calling tenant. Another tenant's wallet is a 404, like a missing one."""
 
@@ -58,7 +76,15 @@ class TransactionPagination(PageNumberPagination):
     page_size = 10
 
 
-@extend_schema(summary="Get a wallet's transaction history", tags=['Wallets'])
+@extend_schema(
+    summary="Get a wallet's transaction history",
+    tags=['Wallets'],
+    responses={
+        200: TransactionSerializer,
+        401: UNAUTHORIZED,
+        404: error('not_found: the wallet does not exist, belongs to another tenant, or the page is out of range'),
+    },
+)
 class WalletTransactionListView(generics.ListAPIView):
     """Every transaction where the wallet is the source or the destination, newest first, 10 per page.
 
@@ -81,7 +107,13 @@ class WalletTransactionListView(generics.ListAPIView):
     tags=['Money'],
     parameters=[IDEMPOTENCY_KEY],
     request=AmountSerializer,
-    responses={201: TransactionSerializer},
+    responses={
+        201: TransactionSerializer,
+        400: error('validation_error or idempotency_key_missing'),
+        401: UNAUTHORIZED,
+        404: NOT_FOUND,
+        422: error('idempotency_key_mismatch'),
+    },
 )
 class DepositView(APIView):
     """Add `amount` paisa to a wallet of the calling tenant and return the new DEPOSIT transaction."""
@@ -99,7 +131,13 @@ class DepositView(APIView):
     tags=['Money'],
     parameters=[IDEMPOTENCY_KEY],
     request=AmountSerializer,
-    responses={201: TransactionSerializer},
+    responses={
+        201: TransactionSerializer,
+        400: error('validation_error or idempotency_key_missing'),
+        401: UNAUTHORIZED,
+        404: NOT_FOUND,
+        422: error('insufficient_funds or idempotency_key_mismatch'),
+    },
 )
 class WithdrawView(APIView):
     """Take `amount` paisa out of a wallet of the calling tenant and return the new WITHDRAWAL transaction.
@@ -120,7 +158,13 @@ class WithdrawView(APIView):
     tags=['Money'],
     parameters=[IDEMPOTENCY_KEY],
     request=TransferSerializer,
-    responses={201: TransactionSerializer},
+    responses={
+        201: TransactionSerializer,
+        400: error('validation_error, idempotency_key_missing or same_wallet_transfer'),
+        401: UNAUTHORIZED,
+        404: error('not_found: either wallet does not exist or belongs to another tenant'),
+        422: error('insufficient_funds or idempotency_key_mismatch'),
+    },
 )
 class TransferView(APIView):
     """Move `amount` paisa between two wallets of the calling tenant and return the new TRANSFER transaction.
