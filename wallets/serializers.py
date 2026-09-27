@@ -37,6 +37,12 @@ class AmountSerializer(serializers.Serializer):
     amount = StrictAmountField(help_text='Paisa, greater than 0.')
 
 
+class TransferSerializer(serializers.Serializer):
+    source_wallet_id = serializers.UUIDField(help_text='Wallet the money leaves.')
+    destination_wallet_id = serializers.UUIDField(help_text='Wallet the money goes to. Not the source.')
+    amount = StrictAmountField(help_text='Paisa, greater than 0.')
+
+
 class WalletSerializer(serializers.ModelSerializer):
     user_id = serializers.UUIDField(read_only=True)
 

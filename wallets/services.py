@@ -2,7 +2,7 @@ from django.db import IntegrityError, transaction
 from django.shortcuts import get_object_or_404
 from rest_framework.exceptions import ValidationError
 
-from .exceptions import IdempotencyKeyMismatch, InsufficientFunds
+from .exceptions import IdempotencyKeyMismatch, InsufficientFunds, SameWalletTransfer
 from .models import Transaction, User, Wallet
 
 # Largest value a BigIntegerField (Postgres bigint) can hold.
@@ -34,6 +34,15 @@ def deposit(tenant, wallet_id, amount, idempotency_key):
 
 def withdraw(tenant, wallet_id, amount, idempotency_key):
     return _execute(tenant, idempotency_key, Transaction.Type.WITHDRAWAL, amount, wallet_id, None)
+
+
+def transfer(tenant, source_wallet_id, destination_wallet_id, amount, idempotency_key):
+    """Move money between two wallets of the tenant: both sides change, or neither does."""
+    if source_wallet_id == destination_wallet_id:
+        raise SameWalletTransfer()
+    return _execute(
+        tenant, idempotency_key, Transaction.Type.TRANSFER, amount, source_wallet_id, destination_wallet_id
+    )
 
 
 def _execute(tenant, idempotency_key, type, amount, source_id, destination_id):

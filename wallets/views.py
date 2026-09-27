@@ -8,7 +8,13 @@ from rest_framework.views import APIView
 from . import services
 from .exceptions import IdempotencyKeyMissing
 from .models import Transaction
-from .serializers import AmountSerializer, TransactionSerializer, UserSerializer, WalletSerializer
+from .serializers import (
+    AmountSerializer,
+    TransactionSerializer,
+    TransferSerializer,
+    UserSerializer,
+    WalletSerializer,
+)
 from .services import get_wallet_for_tenant
 
 IDEMPOTENCY_KEY = OpenApiParameter(
@@ -106,4 +112,28 @@ class WithdrawView(APIView):
         serializer = AmountSerializer(data=request.data)
         serializer.is_valid(raise_exception=True)
         transaction = services.withdraw(request.auth, wallet_id, serializer.validated_data['amount'], key)
+        return Response(TransactionSerializer(transaction).data, status=status.HTTP_201_CREATED)
+
+
+@extend_schema(
+    summary='Transfer between two wallets',
+    tags=['Money'],
+    parameters=[IDEMPOTENCY_KEY],
+    request=TransferSerializer,
+    responses={201: TransactionSerializer},
+)
+class TransferView(APIView):
+    """Move `amount` paisa between two wallets of the calling tenant and return the new TRANSFER transaction.
+
+    Both balances change together or not at all. A wallet in another tenant is a 404, like a missing one.
+    """
+
+    def post(self, request):
+        key = get_idempotency_key(request)
+        serializer = TransferSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        data = serializer.validated_data
+        transaction = services.transfer(
+            request.auth, data['source_wallet_id'], data['destination_wallet_id'], data['amount'], key
+        )
         return Response(TransactionSerializer(transaction).data, status=status.HTTP_201_CREATED)
