@@ -12,7 +12,7 @@ The build takes 8 phases. The foundation comes first (models, auth), then the ri
 - [x] Phase 4: Users and read endpoints
 - [x] Phase 5: Money operations
 - [x] Phase 6: Error format
-- [ ] Phase 7: Tests
+- [x] Phase 7: Tests
 - [ ] Phase 8: Docker and README
 
 ### Project layout
