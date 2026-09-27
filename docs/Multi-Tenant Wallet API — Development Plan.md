@@ -41,6 +41,7 @@ Stand up Django, DRF and PostgreSQL before writing any feature code.
 - Create the Django project with DRF and the `tenants` and `wallets` apps.
 - Run PostgreSQL in Docker Compose from the start. Concurrency tests need real Postgres, because SQLite ignores `select_for_update`.
 - Load settings (database URL, secret key) from environment variables.
+- Define every URL without a trailing slash (`/api/v1/tenants`, not `/api/v1/tenants/`), matching the route design and common public-API practice (Stripe, GitHub). Use `DefaultRouter(trailing_slash=False)` or `path("tenants", ...)`. With DRF's default slashes, Django's `APPEND_SLASH` cannot redirect a POST, so every money route would fail for clients following the docs.
 - Install `drf-spectacular` (not `drf-yasg`, which only speaks OpenAPI 2). Set it as `DEFAULT_SCHEMA_CLASS`, then serve the schema at `/api/schema` and Swagger UI at `/api/docs`. Annotate each view in the phase that builds it, not all at the end.
 
 **Done when:** `docker compose up` starts Postgres, `python manage.py migrate` runs cleanly and `/api/docs` loads.
