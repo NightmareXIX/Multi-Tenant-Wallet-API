@@ -41,8 +41,9 @@ Stand up Django, DRF and PostgreSQL before writing any feature code.
 - Create the Django project with DRF and the `tenants` and `wallets` apps.
 - Run PostgreSQL in Docker Compose from the start. Concurrency tests need real Postgres, because SQLite ignores `select_for_update`.
 - Load settings (database URL, secret key) from environment variables.
+- Install `drf-spectacular` (not `drf-yasg`, which only speaks OpenAPI 2). Set it as `DEFAULT_SCHEMA_CLASS`, then serve the schema at `/api/schema` and Swagger UI at `/api/docs`. Annotate each view in the phase that builds it, not all at the end.
 
-**Done when:** `docker compose up` starts Postgres and `python manage.py migrate` runs cleanly.
+**Done when:** `docker compose up` starts Postgres, `python manage.py migrate` runs cleanly and `/api/docs` loads.
 
 ## Phase 2: Models and migrations
 
@@ -67,10 +68,13 @@ The API key is the only way a request names its tenant, so this layer is the hea
 - `POST /tenants` generates a key with `"sk_" + secrets.token_urlsafe(32)`, stores its SHA-256 hash and returns the plain key once. SHA-256 is enough for a long random key; bcrypt would slow every request.
 - `ApiKeyAuthentication` reads `X-API-Key`, hashes it, looks up the tenant and puts it on the request.
 - One helper serves every view: `get_wallet_for_tenant(tenant, wallet_id)` filters by tenant and raises 404 when nothing matches. Never call `Wallet.objects.get(id=...)` without the tenant filter.
+- Spectacular cannot describe a custom auth class. Write an `OpenApiAuthenticationExtension` that declares an `apiKey` scheme in the `X-API-Key` header, so Swagger's **Authorize** button works. `POST /tenants` sets `authentication_classes = []`, so it shows as public.
 
 **Watch out:** DRF returns 403 instead of 401 unless the auth class implements `authenticate_header()`. Return `"X-API-Key"` from it.
 
-**Done when:** you can create a tenant, and a request with a missing or wrong key gets 401.
+**Watch out:** spectacular only finds the extension if its module is imported. Put it in `tenants/schema.py` and import that from `TenantsConfig.ready()`.
+
+**Done when:** you can create a tenant, a request with a missing or wrong key gets 401, and a key pasted into **Authorize** is sent on requests from `/api/docs`.
 
 ## Phase 4: Users and read endpoints
 
@@ -79,6 +83,7 @@ Three simple routes that give you data to work with before touching money.
 - `POST /users` creates the user and the wallet inside one `transaction.atomic()` block, so a user never exists without a wallet.
 - `GET /wallets/{id}` returns the wallet with its balance.
 - `GET /wallets/{id}/transactions` filters on `Q(source_wallet=w) | Q(destination_wallet=w)`, orders by `-created_at, -id` and uses `PageNumberPagination` with `page_size=10`. The `-id` tiebreaker keeps the order stable when timestamps match.
+- Spectacular cannot infer the serializers of a plain `APIView`. Give those views `@extend_schema(request=..., responses=...)`. Paginated responses from generic views are documented automatically.
 
 **Done when:** you can create a user, read the wallet (balance 0) and get an empty history page.
 
@@ -95,6 +100,11 @@ A duplicate key that slips past the first check hits the unique constraint on in
 - **Deposit:** lock one wallet and add the amount.
 - **Withdraw:** lock one wallet, check the balance and subtract.
 - **Transfer:** reject source == destination with 400 before touching the database. Lock both wallets in sorted id order, so A→B and B→A running together cannot deadlock. Subtract and add in the same atomic block.
+
+### Swagger
+
+- Declare the `Idempotency-Key` header on all three views with `OpenApiParameter("Idempotency-Key", location=OpenApiParameter.HEADER, required=True)`. Without it, Swagger UI has no field for the key.
+- Mark the strict amount field with `@extend_schema_field(OpenApiTypes.INT)`, so the schema shows `integer` rather than `string`.
 
 ### Watch out
 
@@ -120,7 +130,9 @@ Every error leaves the API as `{"error": {"code", "message", "fields"?}}`, produ
 | DRF auth errors | 401 | `invalid_api_key` |
 | `NotFound` / `Http404` | 404 | `not_found` |
 
-**Done when:** every row of the route design's status-code table returns the right shape and code.
+Spectacular only knows DRF's default error bodies. Define an `ErrorSerializer` for this shape and list it in each view's `responses` under the statuses that view can return.
+
+**Done when:** every row of the route design's status-code table returns the right shape and code, and `/api/docs` shows that same shape.
 
 ## Phase 7: Tests
 
@@ -151,6 +163,7 @@ A reviewer should be able to clone the repo and run everything with one command.
 
 - `docker-compose.yml` runs Postgres and the web app. Document the commands to start the app, run migrations and run tests.
 - The README covers setup steps and a short curl walkthrough: create a tenant, create a user, deposit, transfer, view history.
+- It points to Swagger UI at `/api/docs` for trying the API in a browser.
 - It summarises the assumptions, with a link to the FR doc.
 - It lists the trade-offs:
   - The balance is a cached value; the ledger is the source of truth.
