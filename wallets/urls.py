@@ -1,6 +1,12 @@
 from django.urls import path
 
-from .views import UserCreateView, WalletDetailView, WalletTransactionListView
+from .views import (
+    DepositView,
+    UserCreateView,
+    WalletDetailView,
+    WalletTransactionListView,
+    WithdrawView,
+)
 
 urlpatterns = [
     path('users', UserCreateView.as_view(), name='user-create'),
@@ -10,4 +16,6 @@ urlpatterns = [
         WalletTransactionListView.as_view(),
         name='wallet-transactions',
     ),
+    path('wallets/<uuid:wallet_id>/deposit', DepositView.as_view(), name='wallet-deposit'),
+    path('wallets/<uuid:wallet_id>/withdraw', WithdrawView.as_view(), name='wallet-withdraw'),
 ]
