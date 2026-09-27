@@ -15,5 +15,19 @@ services:
       timeout: 5s
       retries: 10
 
+  web:
+    build: .
+    ports:
+      - "${WEB_PORT:-8000}:8000"
+    # Local development values only; set real secrets for any deployment.
+    environment:
+      SECRET_KEY: dev-only-insecure-key
+      DEBUG: "False"
+      ALLOWED_HOSTS: localhost,127.0.0.1
+      DATABASE_URL: postgres://wallet:wallet@db:5432/wallet
+    depends_on:
+      db:
+        condition: service_healthy
+
 volumes:
   pgdata:
