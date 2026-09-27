@@ -6,7 +6,7 @@ Sep 27, 2026 · @Sadnan
 
 The build takes 8 phases. The foundation comes first (models, auth), then the risky part (money operations), then the tests that prove it. Tick a phase off once its "Done when" line holds.
 
-- [ ] Phase 1: Setup
+- [x] Phase 1: Setup
 - [ ] Phase 2: Models and migrations
 - [ ] Phase 3: Tenant creation and API key auth
 - [ ] Phase 4: Users and read endpoints
