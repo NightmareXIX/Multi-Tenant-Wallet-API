@@ -1,11 +1,37 @@
 from django.db.models import Q
-from drf_spectacular.utils import extend_schema
-from rest_framework import generics
+from drf_spectacular.utils import OpenApiParameter, extend_schema
+from rest_framework import generics, status
 from rest_framework.pagination import PageNumberPagination
+from rest_framework.response import Response
+from rest_framework.views import APIView
 
+from . import services
+from .exceptions import IdempotencyKeyMissing
 from .models import Transaction
-from .serializers import TransactionSerializer, UserSerializer, WalletSerializer
+from .serializers import (
+    AmountSerializer,
+    TransactionSerializer,
+    TransferSerializer,
+    UserSerializer,
+    WalletSerializer,
+)
 from .services import get_wallet_for_tenant
+
+IDEMPOTENCY_KEY = OpenApiParameter(
+    'Idempotency-Key',
+    type=str,
+    location=OpenApiParameter.HEADER,
+    required=True,
+    description='Any string up to 255 characters, unique per request (a UUID is recommended). '
+    'Resending the same request with the same key returns the original result without moving money again.',
+)
+
+
+def get_idempotency_key(request):
+    key = request.headers.get('Idempotency-Key', '')
+    if not key.strip() or len(key) > 255:
+        raise IdempotencyKeyMissing()
+    return key
 
 
 @extend_schema(summary='Create a user and their wallet', tags=['Users'])
@@ -48,3 +74,66 @@ class WalletTransactionListView(generics.ListAPIView):
         return Transaction.objects.filter(
             Q(source_wallet=wallet) | Q(destination_wallet=wallet)
         ).order_by('-created_at', '-id')
+
+
+@extend_schema(
+    summary='Deposit into a wallet',
+    tags=['Money'],
+    parameters=[IDEMPOTENCY_KEY],
+    request=AmountSerializer,
+    responses={201: TransactionSerializer},
+)
+class DepositView(APIView):
+    """Add `amount` paisa to a wallet of the calling tenant and return the new DEPOSIT transaction."""
+
+    def post(self, request, wallet_id):
+        key = get_idempotency_key(request)
+        serializer = AmountSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        transaction = services.deposit(request.auth, wallet_id, serializer.validated_data['amount'], key)
+        return Response(TransactionSerializer(transaction).data, status=status.HTTP_201_CREATED)
+
+
+@extend_schema(
+    summary='Withdraw from a wallet',
+    tags=['Money'],
+    parameters=[IDEMPOTENCY_KEY],
+    request=AmountSerializer,
+    responses={201: TransactionSerializer},
+)
+class WithdrawView(APIView):
+    """Take `amount` paisa out of a wallet of the calling tenant and return the new WITHDRAWAL transaction.
+
+    Fails with 422 if the balance is lower than the amount; nothing changes then.
+    """
+
+    def post(self, request, wallet_id):
+        key = get_idempotency_key(request)
+        serializer = AmountSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        transaction = services.withdraw(request.auth, wallet_id, serializer.validated_data['amount'], key)
+        return Response(TransactionSerializer(transaction).data, status=status.HTTP_201_CREATED)
+
+
+@extend_schema(
+    summary='Transfer between two wallets',
+    tags=['Money'],
+    parameters=[IDEMPOTENCY_KEY],
+    request=TransferSerializer,
+    responses={201: TransactionSerializer},
+)
+class TransferView(APIView):
+    """Move `amount` paisa between two wallets of the calling tenant and return the new TRANSFER transaction.
+
+    Both balances change together or not at all. A wallet in another tenant is a 404, like a missing one.
+    """
+
+    def post(self, request):
+        key = get_idempotency_key(request)
+        serializer = TransferSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        data = serializer.validated_data
+        transaction = services.transfer(
+            request.auth, data['source_wallet_id'], data['destination_wallet_id'], data['amount'], key
+        )
+        return Response(TransactionSerializer(transaction).data, status=status.HTTP_201_CREATED)

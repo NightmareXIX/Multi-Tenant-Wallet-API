@@ -1,7 +1,46 @@
+from drf_spectacular.types import OpenApiTypes
+from drf_spectacular.utils import extend_schema_field
 from rest_framework import serializers
 
 from .models import Transaction, User, Wallet
-from .services import create_user
+from .services import BIGINT_MAX, create_user
+
+
+@extend_schema_field(OpenApiTypes.INT)
+class StrictAmountField(serializers.Field):
+    """A positive integer amount in paisa.
+
+    DRF's IntegerField accepts "100" and 100.0; this only takes a real JSON
+    integer. bool is rejected too, although Python counts it as an int.
+    """
+
+    default_error_messages = {
+        'invalid': 'Must be an integer number of paisa.',
+        'min_value': 'Must be greater than 0.',
+        'max_value': f'Must be at most {BIGINT_MAX}.',
+    }
+
+    def to_internal_value(self, data):
+        if type(data) is not int:
+            self.fail('invalid')
+        if data < 1:
+            self.fail('min_value')
+        if data > BIGINT_MAX:
+            self.fail('max_value')
+        return data
+
+    def to_representation(self, value):
+        return value
+
+
+class AmountSerializer(serializers.Serializer):
+    amount = StrictAmountField(help_text='Paisa, greater than 0.')
+
+
+class TransferSerializer(serializers.Serializer):
+    source_wallet_id = serializers.UUIDField(help_text='Wallet the money leaves.')
+    destination_wallet_id = serializers.UUIDField(help_text='Wallet the money goes to. Not the source.')
+    amount = StrictAmountField(help_text='Paisa, greater than 0.')
 
 
 class WalletSerializer(serializers.ModelSerializer):
