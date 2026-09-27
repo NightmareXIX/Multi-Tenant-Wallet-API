@@ -123,3 +123,12 @@ class ConcurrencyTests(LedgerAssertions, TransactionTestCase):
         self.assertGreaterEqual(self.balance(self.bob), 0)
         self.assertLedgerMatches()
 
+    def test_same_key_sent_concurrently_executes_once(self):
+        responses = run_concurrently([self.deposit(self.alice, 500, key='key-1') for _ in range(10)])
+
+        self.assertEqual([r.status_code for r in responses], [201] * 10)
+        for response in responses:
+            self.assertEqual(response.data, responses[0].data)
+        self.assertEqual(Transaction.objects.filter(idempotency_key='key-1').count(), 1)
+        self.assertEqual(self.balance(self.alice), 500)
+        self.assertLedgerMatches()
