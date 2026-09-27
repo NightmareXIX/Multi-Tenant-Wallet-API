@@ -8,7 +8,7 @@ The build takes 8 phases. The foundation comes first (models, auth), then the ri
 
 - [x] Phase 1: Setup
 - [x] Phase 2: Models and migrations
-- [ ] Phase 3: Tenant creation and API key auth
+- [x] Phase 3: Tenant creation and API key auth
 - [ ] Phase 4: Users and read endpoints
 - [ ] Phase 5: Money operations
 - [ ] Phase 6: Error format
